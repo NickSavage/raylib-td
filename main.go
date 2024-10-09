@@ -12,6 +12,12 @@ var gold float32
 
 const GOLD_INCREASE_RATE float32 = 0.1
 
+type Player struct {
+	Gold     float32
+	Turrets  []Turret
+	GameOver bool
+}
+
 type Enemy struct {
 	Rectangle rl.Rectangle
 	Color     rl.Color
@@ -28,15 +34,35 @@ type Turret struct {
 	Damage    int
 }
 
-func CreateEnemy(x, y float32) Enemy {
-	result := Enemy{
-		Rectangle: rl.Rectangle{X: x, Y: y, Width: 25, Height: 25},
-		Color:     rl.Red,
-		Health:    100,
-		HealthBar: rl.Rectangle{X: x, Y: y - 10, Width: 25, Height: 5},
-		Speed:     2,
-		Alive:     true,
+var ENEMY_DATA []Enemy
+
+func LoadEnemyData() []Enemy {
+	results := []Enemy{
+		Enemy{Color: rl.Red, Health: 100, Speed: 2},
+		Enemy{Color: rl.Green, Health: 100, Speed: 5},
+		Enemy{Color: rl.Yellow, Health: 200, Speed: 2},
 	}
+	return results
+}
+
+func CreateRoundOneEnemies(startX, startY float32) []Enemy {
+	results := []Enemy{}
+	var enemy Enemy
+	for i := range 10 {
+		enemy = CreateEnemy(0, float32(i*-40), float32(startY/2))
+		results = append(results, enemy)
+	}
+	enemy = CreateEnemy(2, float32(len(results)*-40), float32(startY/2))
+	results = append(results, enemy)
+	return results
+
+}
+
+func CreateEnemy(enemyType int, x, y float32) Enemy {
+	result := ENEMY_DATA[enemyType]
+	result.Rectangle = rl.Rectangle{X: x, Y: y, Width: 25, Height: 25}
+	result.HealthBar = rl.Rectangle{X: x, Y: y - 10, Width: 25, Height: 5}
+	result.Alive = true
 	return result
 }
 
@@ -48,6 +74,14 @@ func CreateTurret(x, y float32) Turret {
 		Damage:    5,
 	}
 	return result
+}
+
+func (player *Player) CheckAddTurret(x, y float32) {
+	if player.Gold >= 50 {
+		turret := CreateTurret(x, y)
+		player.Gold -= 50
+		player.Turrets = append(player.Turrets, turret)
+	}
 }
 
 func (turret Turret) checkHits(enemies []Enemy) {
@@ -76,49 +110,87 @@ func (enemy *Enemy) Move() {
 	enemy.Rectangle.X = enemy.Rectangle.X + float32(enemy.Speed*1)
 	enemy.HealthBar.Width = float32(enemy.Health / 4)
 	enemy.HealthBar.X = enemy.HealthBar.X + float32(enemy.Speed*1)
+}
 
+func InitPlayer() Player {
+	player := Player{
+		Gold:     100,
+		Turrets:  make([]Turret, 1),
+		GameOver: false,
+	}
+	return player
 }
 
 func main() {
 	screenWidth := int32(800)
 	screenHeight := int32(450)
+	paused := false
+	aliveEnemies := 0
 
+	ENEMY_DATA = LoadEnemyData()
 	rl.InitWindow(screenWidth, screenHeight, "tower defence")
 
 	rl.SetTargetFPS(60)
 	//	mousePosition := rl.Vector2{X: 0, Y: 0}
 
-	enemies := make([]Enemy, 10)
-	turrets := make([]Turret, 1)
-
-	for i := range 10 {
-		enemies[i] = CreateEnemy(float32(i*-40), float32(screenHeight/2))
-	}
-	turrets[0] = CreateTurret(float32(screenWidth/2), float32(screenHeight/2+50))
+	player := InitPlayer()
+	enemies := CreateRoundOneEnemies(float32(screenWidth), float32(screenHeight/2))
+	aliveEnemies = len(enemies)
+	rl.SetExitKey(0)
 	for !rl.WindowShouldClose() {
-		log.Printf("gold %v", gold)
-		gold = gold + (1 * GOLD_INCREASE_RATE)
-		log.Printf("gold %v", gold)
-		// if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-		// 	mousePosition = rl.GetMousePosition()
-		// }
+		if rl.IsKeyPressed(rl.KeyEscape) {
+			paused = !paused
+		}
+		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+			mousePosition := rl.GetMousePosition()
+			player.CheckAddTurret(mousePosition.X, mousePosition.Y)
+			//			paused = !paused
+		}
 
-		displayText := fmt.Sprintf("Gold: %v", gold)
 		rl.BeginDrawing()
-		for i := range turrets {
-			rl.DrawRectangleRec(turrets[i].Rectangle, turrets[0].Color)
-			turrets[i].checkHits(enemies)
+		rl.ClearBackground(rl.White)
+		if aliveEnemies == 0 {
+			rl.DrawText("YOU WIN", screenWidth/2-50, screenHeight/2, 20, rl.Green)
+
+			rl.EndDrawing()
+			continue
+		}
+		if player.GameOver {
+			rl.DrawText("GAME OVER", screenWidth/2-50, screenHeight/2, 20, rl.Red)
+			if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+				player = InitPlayer()
+				enemies = CreateRoundOneEnemies(float32(screenWidth), float32(screenHeight/2))
+			}
+			rl.EndDrawing()
+			continue
 
 		}
-		for i := range enemies {
-			if !enemies[i].Alive {
-				continue
+		if paused {
+			rl.DrawText("PAUSED", screenWidth/2, screenHeight/2, 20, rl.Black)
+
+		} else {
+			player.Gold += (1 * GOLD_INCREASE_RATE)
+			for i := range player.Turrets {
+				rl.DrawRectangleRec(player.Turrets[i].Rectangle, player.Turrets[i].Color)
+				player.Turrets[i].checkHits(enemies)
+
 			}
-			enemies[i].Move()
-			rl.DrawRectangleRec(enemies[i].Rectangle, enemies[i].Color)
-			rl.DrawRectangleRec(enemies[i].HealthBar, rl.Red)
+			aliveEnemies = 0
+			for i := range enemies {
+				if !enemies[i].Alive {
+					continue
+				}
+				aliveEnemies += 1
+				enemies[i].Move()
+				if screenWidth-enemies[i].Rectangle.ToInt32().X <= 25 {
+					player.GameOver = true
+				}
+				rl.DrawRectangleRec(enemies[i].Rectangle, enemies[i].Color)
+				rl.DrawRectangleRec(enemies[i].HealthBar, rl.Red)
+			}
+
 		}
-		rl.ClearBackground(rl.White)
+		displayText := fmt.Sprintf("Gold: %v", math.Round(float64(player.Gold)))
 		rl.DrawText(displayText, 10, 10, 20, rl.Black)
 		rl.EndDrawing()
 
