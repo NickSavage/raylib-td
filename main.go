@@ -60,7 +60,9 @@ type Scene struct {
 	Active      bool
 	AutoDisable bool
 	DrawScene   func(*Game)
+	UpdateScene func(*Game)
 	Buttons     []Button
+	skip        bool
 }
 
 func (g *Game) ActivateScene(sceneName string) {
@@ -176,6 +178,7 @@ func OnClickOpenShopButton(g *Game) {
 }
 
 func OnClickShopBasicTurret(g *Game) {
+	g.Scenes["PlaceTurrets"].skip = true
 	g.ActivateScene("PlaceTurrets")
 }
 
@@ -192,6 +195,10 @@ func DrawVictory(g *Game) {
 	rl.DrawText("YOU WIN", g.screenWidth/2-50, g.screenHeight/2, 20, rl.Green)
 }
 
+func UpdateVictory(g *Game) {
+
+}
+
 func DrawRound(g *Game) {
 	for i := range g.player.Turrets {
 		rl.DrawRectangleRec(g.player.Turrets[i].Rectangle, g.player.Turrets[i].Color)
@@ -204,6 +211,32 @@ func DrawRound(g *Game) {
 	}
 }
 
+func UpdateRound(g *Game) {
+	log.Printf("update round")
+
+	g.player.Gold += (1 * GOLD_INCREASE_RATE)
+
+	for i := range g.player.Turrets {
+		g.checkHits(g.player.Turrets[i])
+
+	}
+	g.aliveEnemies = 0
+	for i := range g.enemies {
+		if !g.enemies[i].Alive {
+			continue
+		}
+		g.aliveEnemies += 1
+		g.enemies[i].Move()
+		if g.screenWidth-g.enemies[i].Rectangle.ToInt32().X <= 25 {
+			g.ActivateScene("GameOver")
+		}
+	}
+	if g.aliveEnemies == 0 {
+		g.ActivateScene("Victory")
+	}
+
+}
+
 func DrawGameOver(g *Game) {
 	rl.DrawText("GAME OVER", g.screenWidth/2-50, g.screenHeight/2, 20, rl.Red)
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
@@ -213,20 +246,42 @@ func DrawGameOver(g *Game) {
 
 }
 
+func UpdateGameOver(g *Game) {
+
+}
+
 func DrawHUD(g *Game) {
 	displayText := fmt.Sprintf("Gold: %v", math.Round(float64(g.player.Gold)))
 	rl.DrawText(displayText, 10, 10, 20, rl.Black)
 }
 
+func UpdateHUD(g *Game) {
+	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		if g.WasButtonClicked(&g.Scenes["HUD"].Buttons[0]) {
+			g.Scenes["HUD"].Buttons[0].OnClick(g)
+		}
+	}
+}
 func DrawPause(g *Game) {
 	log.Printf("?")
 	rl.DrawText("PAUSED", g.screenWidth/2, g.screenHeight/2, 20, rl.Black)
 	rl.DrawRectangleLines(g.screenWidth/2-100, g.screenHeight/2-100, 200, 200, rl.Black)
 }
 
+func UpdatePause(g *Game) {
+
+}
+
 func DrawShop(g *Game) {
 	rl.DrawText("Shop", g.screenWidth/2, 100, 20, rl.Black)
 
+}
+func UpdateShop(g *Game) {
+	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		if g.WasButtonClicked(&g.Scenes["Shop"].Buttons[0]) {
+			g.Scenes["Shop"].Buttons[0].OnClick(g)
+		}
+	}
 }
 
 func DrawPlaceTurret(g *Game) {
@@ -235,6 +290,19 @@ func DrawPlaceTurret(g *Game) {
 
 	rl.DrawCircle(int32(mousePosition.X), int32(mousePosition.Y), 50, rl.LightGray)
 
+}
+
+func UpdatePlaceTurret(g *Game) {
+	if g.Scenes["PlaceTurrets"].skip {
+		g.Scenes["PlaceTurrets"].skip = false
+		return
+
+	}
+	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		mousePosition := rl.GetMousePosition()
+		g.player.CheckAddTurret(mousePosition.X, mousePosition.Y)
+		g.ActivateScene("Round")
+	}
 }
 
 func (g *Game) Draw() {
@@ -268,50 +336,12 @@ func (g *Game) Update() {
 			g.ActivateScene("Pause")
 		}
 	}
-	if g.Scenes["PlaceTurrets"].Active {
-		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-			mousePosition := rl.GetMousePosition()
-			g.player.CheckAddTurret(mousePosition.X, mousePosition.Y)
-			g.ActivateScene("Round")
+	for _, scene := range g.Scenes {
+		if !scene.Active {
+			continue
 		}
+		scene.UpdateScene(g)
 	}
-	if g.Scenes["Shop"].Active {
-		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-			if g.WasButtonClicked(&g.Scenes["Shop"].Buttons[0]) {
-				g.Scenes["Shop"].Buttons[0].OnClick(g)
-			}
-		}
-
-	}
-	if g.Scenes["Round"].Active {
-		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-			if g.WasButtonClicked(&g.Scenes["HUD"].Buttons[0]) {
-				g.Scenes["HUD"].Buttons[0].OnClick(g)
-			}
-		}
-		g.player.Gold += (1 * GOLD_INCREASE_RATE)
-
-		for i := range g.player.Turrets {
-			g.checkHits(g.player.Turrets[i])
-
-		}
-		g.aliveEnemies = 0
-		for i := range g.enemies {
-			if !g.enemies[i].Alive {
-				continue
-			}
-			g.aliveEnemies += 1
-			g.enemies[i].Move()
-			if g.screenWidth-g.enemies[i].Rectangle.ToInt32().X <= 25 {
-				g.ActivateScene("GameOver")
-			}
-		}
-		if g.aliveEnemies == 0 {
-			g.ActivateScene("Victory")
-		}
-
-	}
-
 }
 func main() {
 
@@ -329,21 +359,25 @@ func main() {
 		Active:      false,
 		AutoDisable: true,
 		DrawScene:   DrawVictory,
+		UpdateScene: UpdateVictory,
 	}
 	g.Scenes["GameOver"] = &Scene{
 		Active:      false,
 		AutoDisable: true,
 		DrawScene:   DrawGameOver,
+		UpdateScene: UpdateGameOver,
 	}
 	g.Scenes["Round"] = &Scene{
 		Active:      false,
 		AutoDisable: true,
 		DrawScene:   DrawRound,
+		UpdateScene: UpdateRound,
 	}
 	g.Scenes["HUD"] = &Scene{
 		Active:      true,
 		AutoDisable: false,
 		DrawScene:   DrawHUD,
+		UpdateScene: UpdateHUD,
 		Buttons:     make([]Button, 1),
 	}
 	g.Scenes["HUD"].Buttons[0] = Button{
@@ -357,12 +391,14 @@ func main() {
 		Active:      false,
 		AutoDisable: true,
 		DrawScene:   DrawPause,
+		UpdateScene: UpdatePause,
 	}
 	g.Scenes["Shop"] = &Scene{
 		Active:      false,
 		AutoDisable: true,
 		DrawScene:   DrawShop,
 		Buttons:     make([]Button, 1),
+		UpdateScene: UpdateShop,
 	}
 	g.Scenes["Shop"].Buttons[0] = Button{
 		Rectangle: rl.Rectangle{
@@ -380,6 +416,7 @@ func main() {
 		Active:      false,
 		AutoDisable: true,
 		DrawScene:   DrawPlaceTurret,
+		UpdateScene: UpdatePlaceTurret,
 	}
 	g.aliveEnemies = len(g.enemies)
 
