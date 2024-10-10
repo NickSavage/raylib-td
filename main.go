@@ -76,11 +76,10 @@ func (g *Game) ActivateScene(sceneName string) {
 	}
 }
 
-func (g *Game) ButtonClicked(button *Button) bool {
+func (g *Game) WasButtonClicked(button *Button) bool {
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
 		mousePosition := rl.GetMousePosition()
 		if rl.CheckCollisionPointRec(mousePosition, button.Rectangle) {
-			button.OnClick(g)
 			return true
 		}
 	}
@@ -278,13 +277,17 @@ func (g *Game) Update() {
 	}
 	if g.Scenes["Shop"].Active {
 		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-			_ = g.ButtonClicked(&g.Scenes["Shop"].Buttons[0])
+			if g.WasButtonClicked(&g.Scenes["Shop"].Buttons[0]) {
+				g.Scenes["Shop"].Buttons[0].OnClick(g)
+			}
 		}
 
 	}
 	if g.Scenes["Round"].Active {
 		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-			_ = g.ButtonClicked(&g.Scenes["HUD"].Buttons[0])
+			if g.WasButtonClicked(&g.Scenes["HUD"].Buttons[0]) {
+				g.Scenes["HUD"].Buttons[0].OnClick(g)
+			}
 		}
 		g.player.Gold += (1 * GOLD_INCREASE_RATE)
 
