@@ -12,6 +12,18 @@ var gold float32
 
 const GOLD_INCREASE_RATE float32 = 0.1
 
+type Game struct {
+	Scenes       map[string]*Scene
+	player       Player
+	enemies      []Enemy
+	aliveEnemies int
+	paused       bool
+	screenWidth  int32
+	screenHeight int32
+	shopMenuOpen bool
+	placeTurret  bool
+}
+
 type Player struct {
 	Gold     float32
 	Turrets  []Turret
@@ -32,6 +44,37 @@ type Turret struct {
 	Color     rl.Color
 	Range     int
 	Damage    int
+}
+
+// gui stuff
+
+type Button struct {
+	Rectangle rl.Rectangle
+	Color     rl.Color
+	Text      string
+	TextColor rl.Color
+	OnClick   func(*Game)
+}
+type Scene struct {
+	Name        string
+	Active      bool
+	AutoDisable bool
+	DrawScene   func(*Game)
+	Buttons     []Button
+}
+
+func (g *Game) ActivateScene(sceneName string) {
+	for key, scene := range g.Scenes {
+		if key == sceneName {
+			scene.Active = true
+		} else if scene.AutoDisable {
+			// do nothing
+
+		} else {
+			scene.Active = false
+		}
+		g.Scenes[key] = scene
+	}
 }
 
 var ENEMY_DATA []Enemy
@@ -84,23 +127,23 @@ func (player *Player) CheckAddTurret(x, y float32) {
 	}
 }
 
-func (turret Turret) checkHits(enemies []Enemy) {
+func (g *Game) checkHits(turret Turret) {
 	hasShot := false
-	for i := range enemies {
+	for i := range g.enemies {
 		if hasShot {
 			return
 		}
-		if !enemies[i].Alive {
+		if !g.enemies[i].Alive {
 			continue
 		}
-		distance := int(math.Abs(float64(enemies[i].Rectangle.X - turret.Rectangle.X)))
+		distance := int(math.Abs(float64(g.enemies[i].Rectangle.X - turret.Rectangle.X)))
 		if distance <= turret.Range {
-			enemies[i].Health -= turret.Damage
+			g.enemies[i].Health -= turret.Damage
 			hasShot = true
-			log.Printf("taking damage! %v", enemies[i].Health)
+			log.Printf("taking damage! %v", g.enemies[i].Health)
 		}
-		if enemies[i].Health <= 0 {
-			enemies[i].Alive = false
+		if g.enemies[i].Health <= 0 {
+			g.enemies[i].Alive = false
 		}
 	}
 
@@ -121,78 +164,153 @@ func InitPlayer() Player {
 	return player
 }
 
+func DrawVictory(g *Game) {
+	rl.DrawText("YOU WIN", g.screenWidth/2-50, g.screenHeight/2, 20, rl.Green)
+}
+
+func DrawRound(g *Game) {
+	for i := range g.player.Turrets {
+		rl.DrawRectangleRec(g.player.Turrets[i].Rectangle, g.player.Turrets[i].Color)
+	}
+	for i := range g.enemies {
+		if g.enemies[i].Alive {
+			rl.DrawRectangleRec(g.enemies[i].Rectangle, g.enemies[i].Color)
+			rl.DrawRectangleRec(g.enemies[i].HealthBar, rl.Red)
+		}
+	}
+}
+
+func DrawGameOver(g *Game) {
+	rl.DrawText("GAME OVER", g.screenWidth/2-50, g.screenHeight/2, 20, rl.Red)
+	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		g.player = InitPlayer()
+		g.enemies = CreateRoundOneEnemies(float32(g.screenWidth), float32(g.screenHeight/2))
+	}
+
+}
+
+func DrawHUD(g *Game) {
+	displayText := fmt.Sprintf("Gold: %v", math.Round(float64(g.player.Gold)))
+	rl.DrawText(displayText, 10, 10, 20, rl.Black)
+}
+
+func DrawPause(g *Game) {
+	rl.DrawText("PAUSED", g.screenWidth/2, g.screenHeight/2, 20, rl.Black)
+	rl.DrawRectangleLines(g.screenWidth/2-100, g.screenHeight/2-100, 200, 200, rl.Black)
+}
+
+func (g *Game) Draw() {
+
+	rl.BeginDrawing()
+	rl.ClearBackground(rl.White)
+	for _, scene := range g.Scenes {
+		if !scene.Active {
+			continue
+		}
+		scene.DrawScene(g)
+		for _, button := range scene.Buttons {
+			rl.DrawRectangle(button.Rectangle.ToInt32().X, button.Rectangle.ToInt32().Y, button.Rectangle.ToInt32().Width, button.Rectangle.ToInt32().Height, button.Color)
+			rl.DrawText(
+				button.Text,
+				button.Rectangle.ToInt32().X,
+				button.Rectangle.ToInt32().Y,
+				10,
+				button.TextColor,
+			)
+		}
+	}
+	rl.EndDrawing()
+}
+
+func (g *Game) Update() {
+	if rl.IsKeyPressed(rl.KeyEscape) {
+		g.ActivateScene("Paused")
+	}
+	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		mousePosition := rl.GetMousePosition()
+		g.player.CheckAddTurret(mousePosition.X, mousePosition.Y)
+	}
+	if g.Scenes["Round"].Active {
+		g.player.Gold += (1 * GOLD_INCREASE_RATE)
+
+		for i := range g.player.Turrets {
+			g.checkHits(g.player.Turrets[i])
+
+		}
+		g.aliveEnemies = 0
+		for i := range g.enemies {
+			if !g.enemies[i].Alive {
+				continue
+			}
+			g.aliveEnemies += 1
+			g.enemies[i].Move()
+			if g.screenWidth-g.enemies[i].Rectangle.ToInt32().X <= 25 {
+				g.ActivateScene("GameOver")
+			}
+		}
+		if g.aliveEnemies == 0 {
+			g.ActivateScene("Victory")
+		}
+
+	}
+
+}
 func main() {
-	screenWidth := int32(800)
-	screenHeight := int32(450)
-	paused := false
-	aliveEnemies := 0
 
 	ENEMY_DATA = LoadEnemyData()
-	rl.InitWindow(screenWidth, screenHeight, "tower defence")
+	g := Game{
+		Scenes:       map[string]*Scene{},
+		player:       InitPlayer(),
+		enemies:      CreateRoundOneEnemies(float32(800/2), float32(450/2)),
+		aliveEnemies: 0,
+		paused:       false,
+		screenWidth:  int32(800),
+		screenHeight: int32(450),
+	}
+	g.Scenes["Victory"] = &Scene{
+		Active:      false,
+		AutoDisable: true,
+		DrawScene:   DrawVictory,
+	}
+	g.Scenes["GameOver"] = &Scene{
+		Active:      false,
+		AutoDisable: true,
+		DrawScene:   DrawGameOver,
+	}
+	g.Scenes["Round"] = &Scene{
+		Active:      false,
+		AutoDisable: true,
+		DrawScene:   DrawRound,
+	}
+	g.Scenes["HUD"] = &Scene{
+		Active:      true,
+		AutoDisable: false,
+		DrawScene:   DrawHUD,
+		Buttons:     make([]Button, 1),
+	}
+	g.Scenes["HUD"].Buttons[0] = Button{
+		Rectangle: rl.Rectangle{X: float32(g.screenWidth) - 110, Y: 10, Width: 100, Height: 15},
+		Color:     rl.Blue,
+		Text:      "Test",
+		TextColor: rl.Black,
+	}
+	g.Scenes["Pause"] = &Scene{
+		Active:      false,
+		AutoDisable: true,
+		DrawScene:   DrawPause,
+	}
+	g.aliveEnemies = len(g.enemies)
+
+	rl.InitWindow(g.screenWidth, g.screenHeight, "tower defence")
 
 	rl.SetTargetFPS(60)
 	//	mousePosition := rl.Vector2{X: 0, Y: 0}
 
-	player := InitPlayer()
-	enemies := CreateRoundOneEnemies(float32(screenWidth), float32(screenHeight/2))
-	aliveEnemies = len(enemies)
 	rl.SetExitKey(0)
+	g.Scenes["Round"].Active = true
 	for !rl.WindowShouldClose() {
-		if rl.IsKeyPressed(rl.KeyEscape) {
-			paused = !paused
-		}
-		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-			mousePosition := rl.GetMousePosition()
-			player.CheckAddTurret(mousePosition.X, mousePosition.Y)
-			//			paused = !paused
-		}
-
-		rl.BeginDrawing()
-		rl.ClearBackground(rl.White)
-		if aliveEnemies == 0 {
-			rl.DrawText("YOU WIN", screenWidth/2-50, screenHeight/2, 20, rl.Green)
-
-			rl.EndDrawing()
-			continue
-		}
-		if player.GameOver {
-			rl.DrawText("GAME OVER", screenWidth/2-50, screenHeight/2, 20, rl.Red)
-			if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-				player = InitPlayer()
-				enemies = CreateRoundOneEnemies(float32(screenWidth), float32(screenHeight/2))
-			}
-			rl.EndDrawing()
-			continue
-
-		}
-		if paused {
-			rl.DrawText("PAUSED", screenWidth/2, screenHeight/2, 20, rl.Black)
-
-		} else {
-			player.Gold += (1 * GOLD_INCREASE_RATE)
-			for i := range player.Turrets {
-				rl.DrawRectangleRec(player.Turrets[i].Rectangle, player.Turrets[i].Color)
-				player.Turrets[i].checkHits(enemies)
-
-			}
-			aliveEnemies = 0
-			for i := range enemies {
-				if !enemies[i].Alive {
-					continue
-				}
-				aliveEnemies += 1
-				enemies[i].Move()
-				if screenWidth-enemies[i].Rectangle.ToInt32().X <= 25 {
-					player.GameOver = true
-				}
-				rl.DrawRectangleRec(enemies[i].Rectangle, enemies[i].Color)
-				rl.DrawRectangleRec(enemies[i].HealthBar, rl.Red)
-			}
-
-		}
-		displayText := fmt.Sprintf("Gold: %v", math.Round(float64(player.Gold)))
-		rl.DrawText(displayText, 10, 10, 20, rl.Black)
-		rl.EndDrawing()
+		g.Update()
+		g.Draw()
 
 	}
 
