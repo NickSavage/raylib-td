@@ -68,13 +68,23 @@ func (g *Game) ActivateScene(sceneName string) {
 		if key == sceneName {
 			scene.Active = true
 		} else if scene.AutoDisable {
-			// do nothing
-
-		} else {
 			scene.Active = false
+		} else {
+			// do nothing
 		}
 		g.Scenes[key] = scene
 	}
+}
+
+func (g *Game) ButtonClicked(button *Button) bool {
+	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		mousePosition := rl.GetMousePosition()
+		if rl.CheckCollisionPointRec(mousePosition, button.Rectangle) {
+			button.OnClick(g)
+			return true
+		}
+	}
+	return false
 }
 
 var ENEMY_DATA []Enemy
@@ -113,7 +123,7 @@ func CreateTurret(x, y float32) Turret {
 	result := Turret{
 		Rectangle: rl.Rectangle{X: x, Y: y, Width: 25, Height: 25},
 		Color:     rl.Blue,
-		Range:     20,
+		Range:     50,
 		Damage:    5,
 	}
 	return result
@@ -136,11 +146,18 @@ func (g *Game) checkHits(turret Turret) {
 		if !g.enemies[i].Alive {
 			continue
 		}
-		distance := int(math.Abs(float64(g.enemies[i].Rectangle.X - turret.Rectangle.X)))
-		if distance <= turret.Range {
+		if rl.CheckCollisionCircleRec(
+			rl.Vector2{
+				X: turret.Rectangle.X,
+				Y: turret.Rectangle.Y,
+			},
+			float32(turret.Range),
+			g.enemies[i].Rectangle,
+		) {
 			g.enemies[i].Health -= turret.Damage
 			hasShot = true
 			log.Printf("taking damage! %v", g.enemies[i].Health)
+
 		}
 		if g.enemies[i].Health <= 0 {
 			g.enemies[i].Alive = false
@@ -153,6 +170,14 @@ func (enemy *Enemy) Move() {
 	enemy.Rectangle.X = enemy.Rectangle.X + float32(enemy.Speed*1)
 	enemy.HealthBar.Width = float32(enemy.Health / 4)
 	enemy.HealthBar.X = enemy.HealthBar.X + float32(enemy.Speed*1)
+}
+
+func OnClickOpenShopButton(g *Game) {
+	g.ActivateScene("Shop")
+}
+
+func OnClickShopBasicTurret(g *Game) {
+	g.ActivateScene("PlaceTurrets")
 }
 
 func InitPlayer() Player {
@@ -195,8 +220,22 @@ func DrawHUD(g *Game) {
 }
 
 func DrawPause(g *Game) {
+	log.Printf("?")
 	rl.DrawText("PAUSED", g.screenWidth/2, g.screenHeight/2, 20, rl.Black)
 	rl.DrawRectangleLines(g.screenWidth/2-100, g.screenHeight/2-100, 200, 200, rl.Black)
+}
+
+func DrawShop(g *Game) {
+	rl.DrawText("Shop", g.screenWidth/2, 100, 20, rl.Black)
+
+}
+
+func DrawPlaceTurret(g *Game) {
+	DrawRound(g)
+	mousePosition := rl.GetMousePosition()
+
+	rl.DrawCircle(int32(mousePosition.X), int32(mousePosition.Y), 50, rl.LightGray)
+
 }
 
 func (g *Game) Draw() {
@@ -224,13 +263,29 @@ func (g *Game) Draw() {
 
 func (g *Game) Update() {
 	if rl.IsKeyPressed(rl.KeyEscape) {
-		g.ActivateScene("Paused")
+		if g.Scenes["Pause"].Active {
+			g.ActivateScene("Round")
+		} else {
+			g.ActivateScene("Pause")
+		}
 	}
-	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-		mousePosition := rl.GetMousePosition()
-		g.player.CheckAddTurret(mousePosition.X, mousePosition.Y)
+	if g.Scenes["PlaceTurrets"].Active {
+		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+			mousePosition := rl.GetMousePosition()
+			g.player.CheckAddTurret(mousePosition.X, mousePosition.Y)
+			g.ActivateScene("Round")
+		}
+	}
+	if g.Scenes["Shop"].Active {
+		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+			_ = g.ButtonClicked(&g.Scenes["Shop"].Buttons[0])
+		}
+
 	}
 	if g.Scenes["Round"].Active {
+		if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+			_ = g.ButtonClicked(&g.Scenes["HUD"].Buttons[0])
+		}
 		g.player.Gold += (1 * GOLD_INCREASE_RATE)
 
 		for i := range g.player.Turrets {
@@ -293,11 +348,35 @@ func main() {
 		Color:     rl.Blue,
 		Text:      "Test",
 		TextColor: rl.Black,
+		OnClick:   OnClickOpenShopButton,
 	}
 	g.Scenes["Pause"] = &Scene{
 		Active:      false,
 		AutoDisable: true,
 		DrawScene:   DrawPause,
+	}
+	g.Scenes["Shop"] = &Scene{
+		Active:      false,
+		AutoDisable: true,
+		DrawScene:   DrawShop,
+		Buttons:     make([]Button, 1),
+	}
+	g.Scenes["Shop"].Buttons[0] = Button{
+		Rectangle: rl.Rectangle{
+			X:      200,
+			Y:      50,
+			Width:  100,
+			Height: 30,
+		},
+		Color:     rl.SkyBlue,
+		Text:      "Create Turret (50)",
+		TextColor: rl.Black,
+		OnClick:   OnClickShopBasicTurret,
+	}
+	g.Scenes["PlaceTurrets"] = &Scene{
+		Active:      false,
+		AutoDisable: true,
+		DrawScene:   DrawPlaceTurret,
 	}
 	g.aliveEnemies = len(g.enemies)
 
