@@ -60,8 +60,8 @@ func (g *Game) DrawButtons(buttons []Button) {
 		rl.DrawRectangle(button.Rectangle.ToInt32().X, button.Rectangle.ToInt32().Y, button.Rectangle.ToInt32().Width, button.Rectangle.ToInt32().Height, button.Color)
 		rl.DrawText(
 			button.Text,
-			button.Rectangle.ToInt32().X,
-			button.Rectangle.ToInt32().Y,
+			button.Rectangle.ToInt32().X+5,
+			button.Rectangle.ToInt32().Y+5,
 			10,
 			button.TextColor,
 		)

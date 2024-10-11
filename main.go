@@ -35,7 +35,7 @@ type Enemy struct {
 	HealthBar rl.Rectangle
 	Speed     int
 	Alive     bool
-	Sprite    rl.Texture2D
+	Sprite    Tile
 }
 
 type Turret struct {
@@ -54,12 +54,20 @@ var ENEMY_DATA map[string]Enemy
 
 func LoadEnemyData() map[string]Enemy {
 
-	image := rl.LoadImage("assets/sprite.png")
-	sprite := rl.LoadTextureFromImage(image)
+	tile := Tile{
+		Texture: rl.LoadTexture("assets/sprite.png"),
+		TileFrame: rl.Rectangle{
+			X:      0,
+			Y:      0,
+			Width:  48,
+			Height: 48,
+		},
+		Color: rl.Red,
+	}
 	results := make(map[string]Enemy)
-	results["Normal"] = Enemy{Color: rl.Red, Health: 100, Speed: 1, Sprite: sprite}
-	results["Fast"] = Enemy{Color: rl.Green, Health: 100, Speed: 3, Sprite: sprite}
-	results["Buff"] = Enemy{Color: rl.Yellow, Health: 200, Speed: 1, Sprite: sprite}
+	results["Normal"] = Enemy{Color: rl.Red, Health: 100, Speed: 1, Sprite: tile}
+	results["Fast"] = Enemy{Color: rl.Green, Health: 100, Speed: 3, Sprite: tile}
+	results["Buff"] = Enemy{Color: rl.Yellow, Health: 200, Speed: 1, Sprite: tile}
 	return results
 }
 
@@ -196,26 +204,23 @@ func DrawRound(g *Game) {
 			DrawTile(grassTile, float32(x*30), float32(y*30))
 		}
 	}
+	dirtTile := g.Scenes["Round"].Data["DirtTile"].(Tile)
+	for x := range (g.screenWidth / 30) + 1 {
+		DrawTile(dirtTile, float32(x*30), float32(g.screenHeight/2-60))
+		DrawTile(dirtTile, float32(x*30), float32(g.screenHeight/2-30))
+		DrawTile(dirtTile, float32(x*30), float32(g.screenHeight/2))
+	}
 
 	for i := range g.player.Turrets {
 		rl.DrawRectangleRec(g.player.Turrets[i].Rectangle, g.player.Turrets[i].Color)
 	}
 	for i := range g.enemies {
 		if g.enemies[i].Alive {
-			rl.DrawTextureRec(
+			DrawTile(
 				g.enemies[i].Sprite,
-				rl.Rectangle{
-					X:      0,
-					Y:      0,
-					Width:  48,
-					Height: 48,
-				},
-				rl.Vector2{
-					X: g.enemies[i].Rectangle.X,
-					Y: g.enemies[i].Rectangle.Y,
-				},
-				g.enemies[i].Color)
-			//			rl.DrawRectangleRec(g.enemies[i].Rectangle, g.enemies[i].Color)
+				g.enemies[i].Rectangle.X,
+				g.enemies[i].Rectangle.Y,
+			)
 			rl.DrawRectangleRec(g.enemies[i].HealthBar, rl.Red)
 		}
 	}
@@ -369,7 +374,7 @@ func main() {
 		Buttons:     make([]Button, 1),
 	}
 	g.Scenes["HUD"].Buttons[0] = Button{
-		Rectangle: rl.Rectangle{X: float32(g.screenWidth) - 110, Y: 10, Width: 100, Height: 15},
+		Rectangle: rl.Rectangle{X: float32(g.screenWidth) - 110, Y: 10, Width: 100, Height: 20},
 		Color:     rl.Blue,
 		Text:      "Shop",
 		TextColor: rl.Black,
@@ -447,7 +452,7 @@ func main() {
 	rl.InitWindow(g.screenWidth, g.screenHeight, "tower defence")
 
 	ENEMY_DATA = LoadEnemyData()
-	g.enemies = CreateRoundOneEnemies(float32(800/2), float32(450/2))
+	g.enemies = CreateRoundOneEnemies(float32(800/2), float32(g.screenHeight/2+150))
 	g.aliveEnemies = len(g.enemies)
 
 	g.Scenes["Round"].Data["GrassTile"] = Tile{
@@ -459,6 +464,16 @@ func main() {
 			Height: 30,
 		},
 		Color: rl.Green,
+	}
+	g.Scenes["Round"].Data["DirtTile"] = Tile{
+		Texture: rl.LoadTexture("assets/dirt.png"),
+		TileFrame: rl.Rectangle{
+			X:      15,
+			Y:      80,
+			Width:  30,
+			Height: 30,
+		},
+		Color: rl.Brown,
 	}
 
 	rl.SetTargetFPS(60)
