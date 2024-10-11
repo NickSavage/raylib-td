@@ -57,9 +57,9 @@ func LoadEnemyData() map[string]Enemy {
 	image := rl.LoadImage("assets/sprite.png")
 	sprite := rl.LoadTextureFromImage(image)
 	results := make(map[string]Enemy)
-	results["Normal"] = Enemy{Color: rl.Red, Health: 100, Speed: 2, Sprite: sprite}
-	results["Fast"] = Enemy{Color: rl.Green, Health: 100, Speed: 5, Sprite: sprite}
-	results["Buff"] = Enemy{Color: rl.Yellow, Health: 200, Speed: 2, Sprite: sprite}
+	results["Normal"] = Enemy{Color: rl.Red, Health: 100, Speed: 1, Sprite: sprite}
+	results["Fast"] = Enemy{Color: rl.Green, Health: 100, Speed: 3, Sprite: sprite}
+	results["Buff"] = Enemy{Color: rl.Yellow, Health: 200, Speed: 1, Sprite: sprite}
 	return results
 }
 
@@ -181,6 +181,7 @@ func InitPlayer() Player {
 }
 
 func DrawVictory(g *Game) {
+	DrawRound(g)
 	rl.DrawText("YOU WIN", g.screenWidth/2-50, g.screenHeight/2, 20, rl.Green)
 }
 
@@ -189,6 +190,13 @@ func UpdateVictory(g *Game) {
 }
 
 func DrawRound(g *Game) {
+	grassTile := g.Scenes["Round"].Data["GrassTile"].(Tile)
+	for x := range (g.screenWidth / 30) + 1 {
+		for y := range g.screenHeight / 30 {
+			DrawTile(grassTile, float32(x*30), float32(y*30))
+		}
+	}
+
 	for i := range g.player.Turrets {
 		rl.DrawRectangleRec(g.player.Turrets[i].Rectangle, g.player.Turrets[i].Color)
 	}
@@ -211,9 +219,11 @@ func DrawRound(g *Game) {
 			rl.DrawRectangleRec(g.enemies[i].HealthBar, rl.Red)
 		}
 	}
+	DrawHUD(g)
 }
 
 func UpdateRound(g *Game) {
+
 	g.player.Gold += (1 * GOLD_INCREASE_RATE)
 
 	for i := range g.player.Turrets {
@@ -238,6 +248,7 @@ func UpdateRound(g *Game) {
 }
 
 func DrawGameOver(g *Game) {
+	DrawRound(g)
 	rl.DrawText("GAME OVER", g.screenWidth/2-50, g.screenHeight/2, 20, rl.Red)
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
 		g.player = InitPlayer()
@@ -253,6 +264,8 @@ func UpdateGameOver(g *Game) {
 func DrawHUD(g *Game) {
 	displayText := fmt.Sprintf("Gold: %v", math.Round(float64(g.player.Gold)))
 	rl.DrawText(displayText, 10, 10, 20, rl.Black)
+
+	g.DrawButtons(g.Scenes["HUD"].Buttons)
 }
 
 func UpdateHUD(g *Game) {
@@ -261,10 +274,9 @@ func UpdateHUD(g *Game) {
 			g.Scenes["HUD"].Buttons[0].OnClick(g)
 		}
 	}
-	g.DrawButtons(g.Scenes["HUD"].Buttons)
 }
 func DrawPause(g *Game) {
-	log.Printf("?")
+	DrawRound(g)
 	rl.DrawText("PAUSED", g.screenWidth/2, g.screenHeight/2, 20, rl.Black)
 	rl.DrawRectangleLines(g.screenWidth/2-100, g.screenHeight/2-100, 200, 200, rl.Black)
 }
@@ -347,6 +359,7 @@ func main() {
 		AutoDisable: true,
 		DrawScene:   DrawRound,
 		UpdateScene: UpdateRound,
+		Data:        make(map[string]interface{}),
 	}
 	g.Scenes["HUD"] = &Scene{
 		Active:      true,
@@ -436,6 +449,17 @@ func main() {
 	ENEMY_DATA = LoadEnemyData()
 	g.enemies = CreateRoundOneEnemies(float32(800/2), float32(450/2))
 	g.aliveEnemies = len(g.enemies)
+
+	g.Scenes["Round"].Data["GrassTile"] = Tile{
+		Texture: rl.LoadTexture("assets/grass.png"),
+		TileFrame: rl.Rectangle{
+			X:      0,
+			Y:      80,
+			Width:  30,
+			Height: 30,
+		},
+		Color: rl.Green,
+	}
 
 	rl.SetTargetFPS(60)
 	//	mousePosition := rl.Vector2{X: 0, Y: 0}

@@ -22,6 +22,26 @@ type Scene struct {
 	Data        map[string]interface{}
 }
 
+type Tile struct {
+	Texture   rl.Texture2D
+	TileFrame rl.Rectangle
+	Color     rl.Color
+}
+
+func DrawTile(t Tile, x, y float32) {
+
+	rl.DrawTextureRec(
+		t.Texture,
+		t.TileFrame,
+		rl.Vector2{
+			X: x,
+			Y: y,
+		},
+		t.Color,
+	)
+
+}
+
 func (g *Game) ActivateScene(sceneName string) {
 	for key, scene := range g.Scenes {
 		if key == sceneName {
