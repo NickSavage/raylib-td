@@ -20,6 +20,11 @@ type Game struct {
 	aliveEnemies int
 	screenWidth  int32
 	screenHeight int32
+	frames       int
+	elapsedTime  int
+	round        int
+	totalRounds  int
+	rounds       map[int][]Enemy
 }
 
 type Player struct {
@@ -33,24 +38,86 @@ type Enemy struct {
 	Color     rl.Color
 	Health    int
 	HealthBar rl.Rectangle
-	Speed     int
+	Speed     float32
 	Alive     bool
 	Sprite    Tile
 }
 
 type Turret struct {
-	Rectangle rl.Rectangle
-	Color     rl.Color
-	Range     int
-	Damage    int
-	FireRate  float32
-	Cost      int
+	Rectangle   rl.Rectangle
+	Color       rl.Color
+	Range       int
+	Damage      int
+	FireRate    float32
+	Cost        int
+	FireCounter float32
+}
+
+type Round struct {
+	Round   int
+	Enemies []Enemy
 }
 
 // gui stuff
 
 var TURRET_DATA map[string]Turret
 var ENEMY_DATA map[string]Enemy
+
+func (g *Game) LoadAssets() {
+	g.Scenes["Round"].Data["GrassTile"] = Tile{
+		Texture: rl.LoadTexture("assets/grass.png"),
+		TileFrame: rl.Rectangle{
+			X:      0,
+			Y:      80,
+			Width:  30,
+			Height: 30,
+		},
+		Color: rl.White,
+	}
+	g.Scenes["Round"].Data["DirtTile"] = Tile{
+		Texture: rl.LoadTexture("assets/dirt.png"),
+		TileFrame: rl.Rectangle{
+			X:      15,
+			Y:      80,
+			Width:  30,
+			Height: 30,
+		},
+		Color: rl.White,
+	}
+	image := rl.LoadImage("assets/tower.png")
+	rl.ImageResize(image, 60, 78)
+	g.Scenes["Round"].Data["TowerTile"] = Tile{
+		Texture: rl.LoadTextureFromImage(image),
+		TileFrame: rl.Rectangle{
+			X:      0,
+			Y:      0,
+			Width:  60,
+			Height: 78,
+		},
+		Color: rl.White,
+	}
+}
+
+func (g *Game) CreateRoundOneEnemies() []Enemy {
+	row := float32(g.screenHeight/2 - 50)
+	results := []Enemy{}
+	var enemy Enemy
+	for i := range 10 {
+		enemy = CreateEnemy("Normal", float32(i*-40), row)
+		results = append(results, enemy)
+	}
+	results = append(results, CreateEnemy("Fast", float32(11*-40), row))
+	results = append(results, CreateEnemy("Fast", float32(12*-40), row))
+	results = append(results, CreateEnemy("Fast", float32(13*-40), row))
+	results = append(results, CreateEnemy("Normal", float32(14*-40), row))
+	results = append(results, CreateEnemy("Normal", float32(15*-40), row))
+	results = append(results, CreateEnemy("Normal", float32(16*-40), row))
+	return results
+
+}
+func (g *Game) LoadRounds() {
+	g.rounds[1] = g.CreateRoundOneEnemies()
+}
 
 func LoadEnemyData() map[string]Enemy {
 
@@ -66,30 +133,22 @@ func LoadEnemyData() map[string]Enemy {
 	}
 	results := make(map[string]Enemy)
 	results["Normal"] = Enemy{Color: rl.Red, Health: 100, Speed: 1, Sprite: tile}
-	results["Fast"] = Enemy{Color: rl.Green, Health: 100, Speed: 3, Sprite: tile}
-	results["Buff"] = Enemy{Color: rl.Yellow, Health: 200, Speed: 1, Sprite: tile}
+	results["Fast"] = Enemy{Color: rl.Green, Health: 100, Speed: 2, Sprite: tile}
+	results["Buff"] = Enemy{Color: rl.Yellow, Health: 200, Speed: 0.5, Sprite: tile}
 	return results
 }
 
 func LoadTurretData() map[string]Turret {
 	results := make(map[string]Turret)
-	results["Basic"] = Turret{Range: 50, Damage: 5, FireRate: 1, Cost: 50}
-	results["Strong"] = Turret{Range: 30, Damage: 7, FireRate: 0.5, Cost: 100}
-	results["Wide"] = Turret{Range: 100, Damage: 3, FireRate: 1, Cost: 100}
-	results["Fast"] = Turret{Range: 100, Damage: 2, FireRate: 2, Cost: 100}
+	results["Basic"] = Turret{Range: 150, Damage: 5, FireRate: 3, Cost: 50}
+	results["Strong"] = Turret{Range: 100, Damage: 10, FireRate: 5, Cost: 100}
+	results["Wide"] = Turret{Range: 200, Damage: 3, FireRate: 3, Cost: 50}
+	results["Fast"] = Turret{Range: 200, Damage: 2, FireRate: 1, Cost: 100}
 	return results
 }
 
-func CreateRoundOneEnemies(startX, startY float32) []Enemy {
-	results := []Enemy{}
-	var enemy Enemy
-	for i := range 10 {
-		enemy = CreateEnemy("Normal", float32(i*-60), float32(startY/2))
-		results = append(results, enemy)
-	}
-	enemy = CreateEnemy("Fast", float32(len(results)*-60), float32(startY/2))
-	results = append(results, enemy)
-	return results
+func (g *Game) PrepareNextRound() {
+	g.enemies = g.rounds[g.round]
 
 }
 
@@ -102,26 +161,38 @@ func CreateEnemy(enemyType string, x, y float32) Enemy {
 	return result
 }
 
-func CreateTurret(x, y float32) Turret {
+func CreateTurret(turretType string, x, y float32) Turret {
+	data := TURRET_DATA[turretType]
 	result := Turret{
 		Rectangle: rl.Rectangle{X: x, Y: y, Width: 25, Height: 25},
 		Color:     rl.Blue,
-		Range:     50,
-		Damage:    5,
+		Range:     data.Range,
+		Damage:    data.Damage,
 	}
 	return result
 }
 
-func (player *Player) CheckAddTurret(x, y float32) {
-	if player.Gold >= 50 {
-		turret := CreateTurret(x, y)
-		player.Gold -= 50
-		player.Turrets = append(player.Turrets, turret)
+func (g *Game) CheckAddTurret(chosenTurret Turret, x, y float32) {
+	if g.player.Gold >= float32(chosenTurret.Cost) {
+		chosenTurret.Rectangle.X = x
+		chosenTurret.Rectangle.Y = y
+		log.Printf("create turret x %v y %v", x, y)
+		g.player.Gold -= float32(chosenTurret.Cost)
+		g.player.Turrets = append(g.player.Turrets, chosenTurret)
 	}
 }
 
-func (g *Game) checkHits(turret Turret) {
+func (g *Game) checkHits(turret *Turret) {
 	hasShot := false
+	var newEnemies []Enemy
+	if turret.FireCounter != 0 {
+		// can't fire this round
+		turret.FireCounter -= 1
+		return
+	} else {
+		// reset
+		turret.FireCounter = turret.FireRate
+	}
 	for i := range g.enemies {
 		if hasShot {
 			return
@@ -143,9 +214,11 @@ func (g *Game) checkHits(turret Turret) {
 		}
 		if g.enemies[i].Health <= 0 {
 			g.enemies[i].Alive = false
+		} else {
+			newEnemies = append(newEnemies, g.enemies[i])
 		}
 	}
-
+	g.enemies = newEnemies
 }
 
 func (enemy *Enemy) Move() {
@@ -182,7 +255,7 @@ func OnClickShopWideTurret(g *Game) {
 func InitPlayer() Player {
 	player := Player{
 		Gold:     100,
-		Turrets:  make([]Turret, 1),
+		Turrets:  make([]Turret, 0),
 		GameOver: false,
 	}
 	return player
@@ -211,8 +284,14 @@ func DrawRound(g *Game) {
 		DrawTile(dirtTile, float32(x*30), float32(g.screenHeight/2))
 	}
 
+	towerTile := g.Scenes["Round"].Data["TowerTile"].(Tile)
 	for i := range g.player.Turrets {
-		rl.DrawRectangleRec(g.player.Turrets[i].Rectangle, g.player.Turrets[i].Color)
+		//		log.Printf("draw turret %v", g.player.Turrets[i])
+		DrawTile(
+			towerTile,
+			g.player.Turrets[i].Rectangle.X,
+			g.player.Turrets[i].Rectangle.Y,
+		)
 	}
 	for i := range g.enemies {
 		if g.enemies[i].Alive {
@@ -229,10 +308,20 @@ func DrawRound(g *Game) {
 
 func UpdateRound(g *Game) {
 
+	if rl.IsKeyPressed(rl.KeyS) {
+		g.ActivateScene("Shop")
+		return
+	}
+
+	g.frames += 1
+	if g.frames == 60 {
+		g.frames = 0
+		g.elapsedTime += 1
+	}
 	g.player.Gold += (1 * GOLD_INCREASE_RATE)
 
 	for i := range g.player.Turrets {
-		g.checkHits(g.player.Turrets[i])
+		g.checkHits(&g.player.Turrets[i])
 
 	}
 	g.aliveEnemies = 0
@@ -246,8 +335,14 @@ func UpdateRound(g *Game) {
 			g.ActivateScene("GameOver")
 		}
 	}
-	if g.aliveEnemies == 0 {
-		g.ActivateScene("Victory")
+	if len(g.enemies) == 0 {
+		if g.round == g.totalRounds {
+			g.ActivateScene("Victory")
+			return
+		}
+		g.round += 1
+		g.PrepareNextRound()
+
 	}
 
 }
@@ -255,10 +350,6 @@ func UpdateRound(g *Game) {
 func DrawGameOver(g *Game) {
 	DrawRound(g)
 	rl.DrawText("GAME OVER", g.screenWidth/2-50, g.screenHeight/2, 20, rl.Red)
-	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-		g.player = InitPlayer()
-		g.enemies = CreateRoundOneEnemies(float32(g.screenWidth), float32(g.screenHeight/2))
-	}
 
 }
 
@@ -269,6 +360,8 @@ func UpdateGameOver(g *Game) {
 func DrawHUD(g *Game) {
 	displayText := fmt.Sprintf("Gold: %v", math.Round(float64(g.player.Gold)))
 	rl.DrawText(displayText, 10, 10, 20, rl.Black)
+	rl.DrawText(fmt.Sprintf("Time: %v", g.elapsedTime), 200, 10, 20, rl.Black)
+	rl.DrawText(fmt.Sprintf("Round: %v", g.round), 300, 10, 20, rl.Black)
 
 	g.DrawButtons(g.Scenes["HUD"].Buttons)
 }
@@ -282,8 +375,7 @@ func UpdateHUD(g *Game) {
 }
 func DrawPause(g *Game) {
 	DrawRound(g)
-	rl.DrawText("PAUSED", g.screenWidth/2, g.screenHeight/2, 20, rl.Black)
-	rl.DrawRectangleLines(g.screenWidth/2-100, g.screenHeight/2-100, 200, 200, rl.Black)
+	rl.DrawText("PAUSED", g.screenWidth/2-50, g.screenHeight/2, 20, rl.Black)
 }
 
 func UpdatePause(g *Game) {
@@ -291,8 +383,28 @@ func UpdatePause(g *Game) {
 }
 
 func DrawShop(g *Game) {
-	rl.DrawText("Shop", g.screenWidth/2, 100, 20, rl.Black)
+	DrawRound(g)
 	g.DrawButtons(g.Scenes["Shop"].Buttons)
+	// basic
+	rl.DrawText("Damage: 5", 200, 130, 12, rl.Black)
+	rl.DrawText("Fire Rate: 1", 200, 150, 12, rl.Black)
+	rl.DrawText("Range: 150", 200, 170, 12, rl.Black)
+
+	//Fast
+	rl.DrawText("Damage: 2", 200, 230, 12, rl.Black)
+	rl.DrawText("Fire Rate: 2", 200, 250, 12, rl.Black)
+	rl.DrawText("Range: 200", 200, 270, 12, rl.Black)
+
+	//Strong
+	rl.DrawText("Damage: 10", 400, 130, 12, rl.Black)
+	rl.DrawText("Fire Rate: 0.5", 400, 150, 12, rl.Black)
+	rl.DrawText("Range: 100", 400, 170, 12, rl.Black)
+
+	//Wide
+	rl.DrawText("Damage: 3", 400, 230, 12, rl.Black)
+	rl.DrawText("Fire Rate: 1", 400, 250, 12, rl.Black)
+	rl.DrawText("Range: 200", 400, 270, 12, rl.Black)
+
 }
 func UpdateShop(g *Game) {
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
@@ -310,17 +422,22 @@ func DrawPlaceTurret(g *Game) {
 
 	var chosenTurret Turret
 	if data, ok := g.Scenes["PlaceTurrets"].Data["ChosenTurret"]; ok {
-		log.Printf("chosen turret %v", data)
 		chosenTurret, _ = data.(Turret)
 	}
 	mousePosition := rl.GetMousePosition()
 
-	log.Printf("chosen %v", chosenTurret)
-	rl.DrawCircle(
+	rl.DrawCircleLines(
 		int32(mousePosition.X),
 		int32(mousePosition.Y),
 		float32(chosenTurret.Range),
-		rl.LightGray,
+		rl.Black,
+	)
+	towerTile := g.Scenes["Round"].Data["TowerTile"].(Tile)
+	log.Printf("tower %v", towerTile)
+	DrawTile(
+		towerTile,
+		float32(mousePosition.X)-(towerTile.TileFrame.Width/2),
+		float32(mousePosition.Y)-(towerTile.TileFrame.Height/2),
 	)
 
 }
@@ -332,8 +449,14 @@ func UpdatePlaceTurret(g *Game) {
 
 	}
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+
+		var chosenTurret Turret
+		if data, ok := g.Scenes["PlaceTurrets"].Data["ChosenTurret"]; ok {
+			chosenTurret, _ = data.(Turret)
+		}
 		mousePosition := rl.GetMousePosition()
-		g.player.CheckAddTurret(mousePosition.X, mousePosition.Y)
+		towerTile := g.Scenes["Round"].Data["TowerTile"].(Tile)
+		g.CheckAddTurret(chosenTurret, mousePosition.X-(towerTile.TileFrame.Width/2), mousePosition.Y-(towerTile.TileFrame.Height/2))
 		g.ActivateScene("Round")
 	}
 }
@@ -346,6 +469,11 @@ func main() {
 		aliveEnemies: 0,
 		screenWidth:  int32(800),
 		screenHeight: int32(450),
+		frames:       0,
+		elapsedTime:  0,
+		round:        1,
+		rounds:       make(map[int][]Enemy, 1),
+		totalRounds:  1,
 	}
 	g.Scenes["Victory"] = &Scene{
 		Active:      false,
@@ -396,7 +524,7 @@ func main() {
 	g.Scenes["Shop"].Buttons[0] = Button{
 		Rectangle: rl.Rectangle{
 			X:      200,
-			Y:      50,
+			Y:      100,
 			Width:  100,
 			Height: 30,
 		},
@@ -408,7 +536,7 @@ func main() {
 	g.Scenes["Shop"].Buttons[1] = Button{
 		Rectangle: rl.Rectangle{
 			X:      200,
-			Y:      100,
+			Y:      200,
 			Width:  100,
 			Height: 30,
 		},
@@ -419,8 +547,8 @@ func main() {
 	}
 	g.Scenes["Shop"].Buttons[2] = Button{
 		Rectangle: rl.Rectangle{
-			X:      200,
-			Y:      150,
+			X:      400,
+			Y:      100,
 			Width:  100,
 			Height: 30,
 		},
@@ -431,13 +559,13 @@ func main() {
 	}
 	g.Scenes["Shop"].Buttons[3] = Button{
 		Rectangle: rl.Rectangle{
-			X:      200,
+			X:      400,
 			Y:      200,
 			Width:  100,
 			Height: 30,
 		},
 		Color:     rl.SkyBlue,
-		Text:      "Create Wide Turret (100)",
+		Text:      "Create Wide Turret (50)",
 		TextColor: rl.Black,
 		OnClick:   OnClickShopWideTurret,
 	}
@@ -452,29 +580,11 @@ func main() {
 	rl.InitWindow(g.screenWidth, g.screenHeight, "tower defence")
 
 	ENEMY_DATA = LoadEnemyData()
-	g.enemies = CreateRoundOneEnemies(float32(800/2), float32(g.screenHeight/2+150))
+	g.LoadRounds()
+	g.PrepareNextRound()
 	g.aliveEnemies = len(g.enemies)
 
-	g.Scenes["Round"].Data["GrassTile"] = Tile{
-		Texture: rl.LoadTexture("assets/grass.png"),
-		TileFrame: rl.Rectangle{
-			X:      0,
-			Y:      80,
-			Width:  30,
-			Height: 30,
-		},
-		Color: rl.Green,
-	}
-	g.Scenes["Round"].Data["DirtTile"] = Tile{
-		Texture: rl.LoadTexture("assets/dirt.png"),
-		TileFrame: rl.Rectangle{
-			X:      15,
-			Y:      80,
-			Width:  30,
-			Height: 30,
-		},
-		Color: rl.Brown,
-	}
+	g.LoadAssets()
 
 	rl.SetTargetFPS(60)
 	//	mousePosition := rl.Vector2{X: 0, Y: 0}
